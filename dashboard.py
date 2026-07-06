@@ -51,7 +51,40 @@ def load_data():
     
     return df_clean
 
-df_clean = load_data()
+df_raw = load_data()
+
+# --- SIDEBAR INTERACTIVE FILTERS ---
+st.sidebar.header("🎛️ Patient Subpopulation Filters")
+st.sidebar.markdown("Filter the whole dataset to analyze custom risk profiles:")
+
+# Lifestyle Segment Filters
+activity_filter = st.sidebar.multiselect(
+    "Physical Activity Status",
+    options=["Active", "Sedentary"],
+    default=["Active", "Sedentary"]
+)
+
+chol_filter = st.sidebar.multiselect(
+    "Cholesterol Baseline",
+    options=["Normal", "Above Normal", "High"],
+    default=["Normal", "Above Normal", "High"]
+)
+
+# Advanced Clinical Range Filters
+bmi_range = st.sidebar.slider(
+    "Body Mass Index (BMI) Range",
+    min_value=int(df_raw["BMI"].min()),
+    max_value=int(df_raw["BMI"].max()),
+    value=(int(df_raw["BMI"].min()), int(df_raw["BMI"].max()))
+)
+
+# Dynamically apply filters to the active dataframe
+df_clean = df_raw[
+    (df_raw["Activity Level"].isin(activity_filter)) &
+    (df_raw["Cholesterol Level"].isin(chol_filter)) &
+    (df_raw["BMI"].between(bmi_range[0], bmi_range[1]))
+].copy()
+
 
 # --- Helper function to find age at risk threshold ---
 def find_age_at_risk(data, gender, risk_threshold):
@@ -65,77 +98,56 @@ def find_age_at_risk(data, gender, risk_threshold):
         .reset_index()
     )
     risk_by_age["risk_pct"] = risk_by_age["mean"] * 100
-    risk_by_age = risk_by_age[risk_by_age["count"] > 10]  # Filter for meaningful sample sizes
+    risk_by_age = risk_by_age[risk_by_age["count"] >= 5]  # Lower sample size bound for filtered sets
     
     exceeds = risk_by_age[risk_by_age["risk_pct"] >= risk_threshold]
     if len(exceeds) > 0:
         return int(exceeds.iloc[0]["age_bin"].left)
     return None
 
-# --- SECTION 1: KEY INSIGHTS ---
-st.markdown("---")
-st.markdown("## 🎯 Key Findings")
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    women_50pct = find_age_at_risk(df_clean, "Women", 50)
-    st.metric("Women hit 50% risk", f"~{women_50pct} years" if women_50pct else "N/A")
-
-with col2:
-    men_50pct = find_age_at_risk(df_clean, "Men", 50)
-    st.metric("Men hit 50% risk", f"~{men_50pct} years" if men_50pct else "N/A")
-
-with col3:
-    overall_cvd = (df_clean["cardio"].sum() / len(df_clean) * 100)
-    st.metric("Overall CVD Rate", f"{overall_cvd:.1f}%")
-
-with col4:
-    age_diff = (women_50pct - men_50pct) if (women_50pct and men_50pct) else None
-    st.metric("Gender Gap", f"{abs(age_diff)} years" if age_diff else "N/A", delta=f"Women {'' if age_diff >= 0 else 'older'}")
-
-st.markdown("""
-**📌 Summary:** Cardiovascular disease prevalence becomes noticeably common (50% threshold) at:
-- **Women**: ~{} years old
-- **Men**: ~{} years old
-
-Men tend to develop CVD at slightly earlier ages than women.
-""".format(women_50pct or "?", men_50pct or "?"))
-
-st.markdown("---")
-
 # --- SECTION 2: INTERACTIVE THRESHOLD EXPLORER ---
 st.markdown("## 🎚️ Explore Risk Thresholds")
-st.markdown("*Use the slider below to see at what age different CVD risk levels are reached*")
-
 risk_threshold = st.slider(
-    "Select CVD Prevalence Threshold (%)",
+    "Select Target CVD Prevalence Cross-Section (%)",
     min_value=10,
     max_value=90,
     value=50,
     step=5
 )
 
-col1, col2 = st.columns(2)
+# --- SECTION 1: DYNAMIC KEY INSIGHTS ---
+st.markdown("## 🎯 Cohort Analysis Insights")
+
+col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    women_age = find_age_at_risk(df_clean, "Women", risk_threshold)
-    if women_age:
-        st.success(f"**Women:** CVD reaches {risk_threshold}% prevalence at age **~{women_age}**")
-    else:
-        st.warning(f"**Women:** Threshold of {risk_threshold}% not reached in dataset")
+    women_pct = find_age_at_risk(df_clean, "Women", risk_threshold)
+    st.metric(f"Women hit {risk_threshold}% risk", f"~{women_pct} yrs" if women_pct else "N/A")
 
 with col2:
-    men_age = find_age_at_risk(df_clean, "Men", risk_threshold)
-    if men_age:
-        st.success(f"**Men:** CVD reaches {risk_threshold}% prevalence at age **~{men_age}**")
+    men_pct = find_age_at_risk(df_clean, "Men", risk_threshold)
+    st.metric(f"Men hit {risk_threshold}% risk", f"~{men_pct} yrs" if men_pct else "N/A")
+
+with col3:
+    if len(df_clean) > 0:
+        overall_cvd = (df_clean["cardio"].sum() / len(df_clean) * 100)
+        st.metric("Cohort CVD Rate", f"{overall_cvd:.1f}%")
     else:
-        st.warning(f"**Men:** Threshold of {risk_threshold}% not reached in dataset")
+        st.metric("Cohort CVD Rate", "0.0%")
+
+with col4:
+    age_diff = (women_pct - men_pct) if (women_pct and men_pct) else None
+    st.metric("Gender Age Gap", f"{abs(age_diff)} years" if age_diff else "N/A", 
+              delta="Women older" if (age_diff and age_diff >= 0) else "Women younger" if age_diff else None)
+
+if len(df_clean) == 0:
+    st.error("⚠️ No patients match the current sidebar filter criteria. Please broaden your selection.")
+    st.stop()
 
 st.markdown("---")
 
 # --- SECTION 3: MAIN VISUALIZATIONS ---
-st.markdown("## 📊 Detailed Visualizations")
+st.markdown("## 📊 Cohort Breakdown Visualizations")
 
 # --- Plot 1: The Tipping Point (ENHANCED) ---
 st.subheader("1️⃣ CVD Risk Over Time by Gender")
@@ -155,11 +167,10 @@ fig1 = px.line(
     y="CVD Prevalence (%)",
     color="Gender Label",
     markers=True,
-    title="Cardiovascular Risk Over Time by Gender",
+    title=f"Cardiovascular Risk Cross-Section (Filtered Cohort)",
     color_discrete_sequence=["#e34a33", "#2b8cbe"],
 )
-fig1.add_hline(y=50, line_dash="dash", annotation_text="50% Threshold", line_color="orange")
-fig1.add_hline(y=risk_threshold, line_dash="dot", annotation_text=f"{risk_threshold}% Selected", line_color="green")
+fig1.add_hline(y=risk_threshold, line_dash="dash", annotation_text=f"{risk_threshold}% Target", line_color="orange")
 fig1.update_yaxes(range=[0, 100])
 fig1.update_layout(hovermode="x unified")
 st.plotly_chart(fig1, use_container_width=True)
@@ -181,7 +192,7 @@ fig2 = px.line(
     y="CVD Probability",
     color="Cholesterol Level",
     facet_col="Glucose Level",
-    title="How Cholesterol & Glucose Levels Compound Risk",
+    title="How Cholesterol & Glucose Levels Compound Risk within Cohort",
     color_discrete_sequence=px.colors.qualitative.Set1,
     category_orders={"Cholesterol Level": ["Normal", "Above Normal", "High"], "Glucose Level": ["Normal", "Above Normal", "High"]}
 )
@@ -221,13 +232,13 @@ fig3 = px.density_heatmap(
     histfunc="sum",
     text_auto=True,
     color_continuous_scale="Reds",
-    title="CVD Prevalence by BP & Cholesterol (Higher = More Red)",
+    title="CVD Prevalence by BP & Cholesterol Matrix",
     category_orders={"BP Bracket": bp_order, "Cholesterol Level": chol_order}
 )
 st.plotly_chart(fig3, use_container_width=True)
 
 # --- Plot 4: Lifestyle Impact ---
-st.subheader("4️⃣ The Lifestyle Buffer: Physical Activity Impact")
+st.subheader("4️⃣ Distribution of Age Across CVD Outcomes")
 fig4 = px.box(
     df_clean,
     x="CVD Status",
@@ -235,23 +246,16 @@ fig4 = px.box(
     color="Activity Level",
     facet_col="Gender Label",
     notched=True,
-    title="Does Physical Activity Lower CVD Risk?",
+    title="Age Distribution for Healthy vs CVD Cohorts",
     color_discrete_sequence=["#7fcdbb", "#2c7fb8"],
     labels={"age_years": "Patient Age (Years)"},
     category_orders={"CVD Status": ["Healthy", "CVD Present"], "Activity Level": ["Sedentary", "Active"]}
 )
 st.plotly_chart(fig4, use_container_width=True)
 
-# --- Sidebar ---
-st.sidebar.markdown("### 📊 Dataset Overview")
-st.sidebar.metric("Total Patients", f"{len(df_clean):,}")
-st.sidebar.metric("CVD Cases", f"{(df_clean['cardio'] == 1).sum():,}")
-st.sidebar.metric("CVD Rate", f"{(df_clean['cardio'].mean() * 100):.1f}%")
-
+# --- Sidebar Context Metadata ---
 st.sidebar.markdown("---")
-st.sidebar.markdown("""
-**About This Dashboard:**
-- Shows CVD prevalence patterns by age and gender
-- Helps identify high-risk age groups
-- Explores how lifestyle & health factors influence risk
-""")
+st.sidebar.markdown("### 📊 Active Subgroup Stats")
+st.sidebar.metric("Patients in View", f"{len(df_clean):,}")
+st.sidebar.metric("CVD Cases in View", f"{(df_clean['cardio'] == 1).sum():,}")
+st.sidebar.markdown(f"**Original Total Pool:** {len(df_raw):,} patients")
