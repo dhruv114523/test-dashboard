@@ -242,19 +242,6 @@ fig4 = px.box(
 )
 st.plotly_chart(fig4, use_container_width=True)
 
-# --- SECTION 4: INSIGHTS & INTERPRETATION ---
-st.markdown("---")
-st.markdown("## 💡 What Does This Mean?")
-
-st.info("""
-**Key Takeaway:** Cardiovascular disease prevalence shows a clear age-related increase, with a notable "tipping point" around 55-60 years old.
-
-- **Gender Differences:** Men tend to develop CVD slightly earlier than women
-- **Risk Factors Stack:** High cholesterol + high blood pressure = dramatically higher risk
-- **Lifestyle Matters:** Active individuals show better outcomes in younger groups
-- **Screening:** These findings support cardiovascular screening programs starting in the 45-50 age range
-""")
-
 # --- Sidebar ---
 st.sidebar.markdown("### 📊 Dataset Overview")
 st.sidebar.metric("Total Patients", f"{len(df_clean):,}")
